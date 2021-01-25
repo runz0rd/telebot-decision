@@ -24,7 +24,7 @@ type TelegramDecision struct {
 	decided     chan bool
 }
 
-type decisionHandler func(d Decision) error
+type decisionHandler func(what string, options []string, decisionIndex int) error
 
 func NewTelegramDecision(tb *telebot.Bot, what string, options []string, h decisionHandler) *TelegramDecision {
 	return &TelegramDecision{
@@ -108,8 +108,12 @@ func (td *TelegramDecision) createReplyMarkup(d Decision) *telebot.ReplyMarkup {
 
 func (td *TelegramDecision) handleButtonCallback(c *telebot.Callback, d Decision) error {
 	defer messageCleanup(td.tb, c.Message)
-	d.decisionIndex, _ = strconv.Atoi(c.Data)
-	if err := d.handler(d); err != nil {
+	var err error
+	d.decisionIndex, err = strconv.Atoi(c.Data)
+	if err != nil {
+		return err
+	}
+	if err := d.handler(d.what, d.options, d.decisionIndex); err != nil {
 		return fmt.Errorf("handler error: %v", err)
 	}
 	return nil
