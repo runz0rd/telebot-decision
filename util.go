@@ -19,3 +19,11 @@ func SendError(tb *telebot.Bot, userId int, err error) {
 	log.Println(err)
 	_, _ = tb.Send(&telebot.User{ID: userId}, err.Error())
 }
+
+func SpaceFiller(s string, space int) string {
+	var filler string
+	for i := 0; i < space-len(s); i++ {
+		filler += " "
+	}
+	return filler
+}
