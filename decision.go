@@ -130,7 +130,8 @@ func (td *TelegramDecision) cancelButton(rm *telebot.ReplyMarkup) telebot.Btn {
 	button := rm.Data("cancel", "cancel", "cancel")
 	td.tb.Handle(&button, func(c *telebot.Callback) {
 		_ = messageCleanup(td.tb, c.Message)
-		td.decided <- true
+		log.Println("decision cancelled")
+		td.decided <- false
 	})
 	return button
 }
