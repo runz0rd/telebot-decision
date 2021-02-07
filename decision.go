@@ -9,6 +9,8 @@ import (
 	"gopkg.in/tucnak/telebot.v2"
 )
 
+type Page []telebot.Row
+
 type Decision struct {
 	what          string
 	options       []string
@@ -22,6 +24,7 @@ type TelegramDecision struct {
 	decisionMsg string
 	successMsg  string
 	decided     chan bool
+	perPage     int
 }
 
 type decisionHandler func(what string, options []string, decisionIndex int) error
@@ -34,7 +37,13 @@ func NewTelegramDecision(tb *telebot.Bot, what string, options []string, h decis
 			options: options,
 			handler: h,
 		},
-		decided: make(chan bool)}
+		decided: make(chan bool),
+		perPage: 10}
+}
+
+func (td *TelegramDecision) PerPage(num int) *TelegramDecision {
+	td.perPage = num
+	return td
 }
 
 func (td *TelegramDecision) Messagef(format string, a ...interface{}) *TelegramDecision {
@@ -83,27 +92,66 @@ func (td *TelegramDecision) send(to interface{}) error {
 }
 
 func (td *TelegramDecision) createReplyMarkup(d Decision) *telebot.ReplyMarkup {
-	rm := &telebot.ReplyMarkup{ResizeReplyKeyboard: true}
-	var rows []telebot.Row
-	for i, option := range d.options {
-		hash := fmt.Sprintf("%x", md5.Sum([]byte(d.what+option)))
-		button := rm.Data(option, hash, fmt.Sprint(i)) // unique and data max is 64 bytes
-		td.tb.Handle(&button, func(c *telebot.Callback) {
-			if err := td.handleButtonCallback(c, d); err != nil {
-				if c.Message.ReplyTo != nil {
-					ReplyError(td.tb, c.Message.ReplyTo, err)
-				} else {
-					SendError(td.tb, c.Sender.ID, fmt.Errorf("`%v`\n%v", d.what, err))
-				}
-				td.decided <- false
-				return
-			}
-			td.decided <- true
-		})
-		rows = append(rows, rm.Row(button))
+	rm := &telebot.ReplyMarkup{}
+	var pages []Page
+	var page Page
+	var pageCount int
+	for i := 1; i < len(d.options)+1; i++ {
+		page = append(page, rm.Row(td.optionButton(d, d.options[i-1], i, rm)))
+		if i%td.perPage == 0 || i == len(d.options) {
+			pageCount = len(pages) + 1
+			prevButton := rm.Data("<", "prev"+fmt.Sprint(pageCount-1), fmt.Sprint(pageCount-1))
+			nextButton := rm.Data(">", "next"+fmt.Sprint(pageCount+1), fmt.Sprint(pageCount+1))
+			page = append(page, rm.Row(prevButton, nextButton))
+			page = append(page, rm.Row(td.cancelButton(rm)))
+			pages = append(pages, page)
+			td.handlePaginationButton(&prevButton, &pages, rm)
+			td.handlePaginationButton(&nextButton, &pages, rm)
+			page = Page{}
+		}
 	}
-	rm.Inline(rows...)
+	rm.Inline(pages[0]...)
 	return rm
+}
+
+func (td *TelegramDecision) handlePaginationButton(b *telebot.Btn, pages *[]Page, rm *telebot.ReplyMarkup) {
+	td.tb.Handle(b, func(c *telebot.Callback) {
+		defer td.tb.Respond(c)
+		pageIndex, err := strconv.Atoi(c.Data)
+		if err != nil || pageIndex < 1 || pageIndex > len(*pages) {
+			return
+		}
+		rm.Inline((*pages)[pageIndex-1]...)
+		_, _ = td.tb.Edit(c.Message, c.Message.Text, rm)
+	})
+}
+
+func (td *TelegramDecision) cancelButton(rm *telebot.ReplyMarkup) telebot.Btn {
+	button := rm.Data("cancel", "cancel", "cancel")
+	td.tb.Handle(&button, func(c *telebot.Callback) {
+		_ = messageCleanup(td.tb, c.Message)
+		td.decided <- true
+	})
+	return button
+}
+
+func (td *TelegramDecision) optionButton(d Decision, option string, optionIndex int, rm *telebot.ReplyMarkup) telebot.Btn {
+	hash := fmt.Sprintf("%x", md5.Sum([]byte(d.what+option)))
+	button := rm.Data(option, hash, fmt.Sprint(optionIndex)) // unique and data max is 64 bytes
+	td.tb.Handle(&button, func(c *telebot.Callback) {
+		defer td.tb.Respond(c)
+		if err := td.handleButtonCallback(c, d); err != nil {
+			if c.Message.ReplyTo != nil {
+				ReplyError(td.tb, c.Message.ReplyTo, err)
+			} else {
+				SendError(td.tb, c.Sender.ID, fmt.Errorf("`%v`\n%v", d.what, err))
+			}
+			td.decided <- false
+			return
+		}
+		td.decided <- true
+	})
+	return button
 }
 
 func (td *TelegramDecision) handleButtonCallback(c *telebot.Callback, d Decision) error {

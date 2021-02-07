@@ -2,9 +2,19 @@ package decision
 
 import (
 	"log"
+	"time"
 
 	"gopkg.in/tucnak/telebot.v2"
 )
+
+func NewTelebot(botToken string) (*telebot.Bot, error) {
+	tb, err := telebot.NewBot(telebot.Settings{
+		Token:     botToken,
+		Poller:    &telebot.LongPoller{Timeout: 10 * time.Second},
+		ParseMode: telebot.ModeMarkdown,
+	})
+	return tb, err
+}
 
 func messageCleanup(tb *telebot.Bot, m *telebot.Message) error {
 	return tb.Delete(m)
