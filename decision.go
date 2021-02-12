@@ -96,9 +96,9 @@ func (td *TelegramDecision) createReplyMarkup(d Decision) *telebot.ReplyMarkup {
 	var pages []Page
 	var page Page
 	var pageCount int
-	for i := 1; i < len(d.options)+1; i++ {
-		page = append(page, rm.Row(td.optionButton(d, d.options[i-1], i-1, rm)))
-		if i%td.perPage == 0 || i == len(d.options) {
+	for i, option := range d.options {
+		page = append(page, rm.Row(td.optionButton(d, option, i, rm)))
+		if (i+1)%td.perPage == 0 || i+1 == len(d.options) {
 			pageCount = len(pages) + 1
 			prevButton := rm.Data("<", "prev"+fmt.Sprint(pageCount-1), fmt.Sprint(pageCount-1))
 			nextButton := rm.Data(">", "next"+fmt.Sprint(pageCount+1), fmt.Sprint(pageCount+1))
