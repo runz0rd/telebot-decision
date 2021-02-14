@@ -56,15 +56,15 @@ func (td *TelegramDecision) Successf(format string, a ...interface{}) *TelegramD
 	return td
 }
 
-func (td *TelegramDecision) Send(userId int) error {
+func (td *TelegramDecision) Send(userId int) (bool, error) {
 	return td.send(userId)
 }
 
-func (td *TelegramDecision) Reply(to *telebot.Message) error {
+func (td *TelegramDecision) Reply(to *telebot.Message) (bool, error) {
 	return td.send(to)
 }
 
-func (td *TelegramDecision) send(to interface{}) error {
+func (td *TelegramDecision) send(to interface{}) (bool, error) {
 	if td.decisionMsg == "" {
 		td.decisionMsg = fmt.Sprintf("`%v`", td.d.what)
 	}
@@ -76,11 +76,11 @@ func (td *TelegramDecision) send(to interface{}) error {
 	}
 
 	log.Printf("waiting on decision for %q", td.d.what)
-	isSuccess := <-td.decided
+	decided := <-td.decided
 	log.Printf("decided on %q", td.d.what)
 
-	if td.successMsg == "" || !isSuccess {
-		return nil
+	if td.successMsg == "" || !decided {
+		return decided, nil
 	}
 	switch v := to.(type) {
 	case *telebot.Message:
@@ -88,7 +88,7 @@ func (td *TelegramDecision) send(to interface{}) error {
 	case int:
 		_, _ = td.tb.Send(&telebot.User{ID: v}, td.successMsg)
 	}
-	return nil
+	return decided, nil
 }
 
 func (td *TelegramDecision) createReplyMarkup(d Decision) *telebot.ReplyMarkup {
