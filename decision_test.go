@@ -9,18 +9,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Config struct {
+type TelegramConfig struct {
 	BotToken string `yaml:"bot_token,omitempty"`
 	UserId   int    `yaml:"user_id,omitempty"`
 }
 
-func loadConfig(file string) (*Config, error) {
+func loadConfig(file string) (*TelegramConfig, error) {
 	var data []byte
 	data, err := ioutil.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
-	c := &Config{}
+	c := &TelegramConfig{}
 	err = yaml.Unmarshal(data, c)
 	if err != nil {
 		return nil, err
