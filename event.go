@@ -16,10 +16,10 @@ type Options struct {
 
 type TelegramDecisionHandler interface {
 	// handle the bot /start command and produce a reply message
-	OnStart(senderId int) (reply string, err error)
+	OnStart(m *telebot.Message) (reply string, err error)
 
 	// handle the what in message and produce a reply message and options
-	OnMessage(message string, senderId int) (reply string, options []string, err error)
+	OnMessage(m *telebot.Message) (reply string, options []string, err error)
 
 	// handle the decision result and produce a reply message
 	OnDecision(what string, options []string, index int) (reply string, err error)
