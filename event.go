@@ -3,9 +3,9 @@ package decision
 import (
 	"crypto/md5"
 	"fmt"
-	"log"
 	"strconv"
 
+	"github.com/pkg/errors"
 	"gopkg.in/tucnak/telebot.v2"
 )
 
@@ -15,31 +15,27 @@ type Options struct {
 }
 
 type TelegramDecisionHandler interface {
-	// handle the bot /start command
-	OnStart(senderId int) error
+	// handle the bot /start command and produce a reply message
+	OnStart(senderId int) (reply string, err error)
 
-	// handle the what in message and produce a decision message, and options
-	OnMessage(message string, senderId int) (string, []string, error)
+	// handle the what in message and produce a reply message and options
+	OnMessage(message string, senderId int) (reply string, options []string, err error)
 
-	// handle the decision result and produce a success message
-	OnDecision(what string, options []string, index int) (string, error)
+	// handle the decision result and produce a reply message
+	OnDecision(what string, options []string, index int) (reply string, err error)
 
-	// handle cancelled decisions
-	OnCancel() error
+	// handle cancelled decision and produce a reply message
+	OnCancel() (reply string, err error)
 
-	// handle errors on and between events
-	OnError(err error)
+	// handle error and produce a reply message
+	OnError(err error) (reply string)
 }
 
 type TelegramEventDecision struct {
 	tb      *telebot.Bot
+	opts    Options
 	what    string
 	options []string
-	decided chan bool
-	opts    Options
-
-	decisionMessage string
-	successMessage  string
 }
 
 func NewTelegramDecisionWithHandler(tb *telebot.Bot, opts Options) *TelegramEventDecision {
@@ -47,51 +43,31 @@ func NewTelegramDecisionWithHandler(tb *telebot.Bot, opts Options) *TelegramEven
 		opts.optionsPerPage = 10
 	}
 	return &TelegramEventDecision{
-		tb:      tb,
-		decided: make(chan bool),
-		opts:    opts,
+		tb:   tb,
+		opts: opts,
 	}
 }
 
 func (td *TelegramEventDecision) Handle(h TelegramDecisionHandler) {
 	var err error
-	var message *telebot.Message
 	td.tb.Handle("/start", func(m *telebot.Message) {
-		if err := h.OnStart(m.Sender.ID); err != nil {
-			h.OnError(err)
-		}
-		message = m
-	})
-	td.tb.Handle(telebot.OnText, func(m *telebot.Message) {
-		td.what = m.Text
-		if td.decisionMessage, td.options, err = h.OnMessage(m.Text, m.Sender.ID); err != nil {
-			h.OnError(err)
+		msg, err := h.OnStart(m.Sender.ID)
+		if err != nil {
+			td.handleError(m, h, err)
 			return
 		}
-		if td.decisionMessage != "" {
-			if err = td.message(m, td.decisionMessage, td.createReplyMarkup(h)); err != nil {
-				h.OnError(err)
-				return
-			}
-		}
+		td.handleMessage(m, msg)
 	})
-	log.Printf("waiting on decision for %q", td.what)
-	decided := <-td.decided
-	log.Printf("decided on %q", td.what)
-
-	if !decided {
-		if err := h.OnCancel(); err != nil {
-			h.OnError(err)
+	td.tb.Handle(telebot.OnText, func(m *telebot.Message) {
+		var msg string
+		td.what = m.Text
+		msg, td.options, err = h.OnMessage(m.Text, m.Sender.ID)
+		if err != nil {
+			td.handleError(m, h, err)
+			return
 		}
-		return
-	}
-	if td.successMessage == "" {
-		return
-	}
-	if err = td.message(message, td.decisionMessage); err != nil {
-		h.OnError(err)
-		return
-	}
+		td.handleMessage(m, msg)
+	})
 }
 
 func (td *TelegramEventDecision) createReplyMarkup(h TelegramDecisionHandler) *telebot.ReplyMarkup {
@@ -106,7 +82,7 @@ func (td *TelegramEventDecision) createReplyMarkup(h TelegramDecisionHandler) *t
 			prevButton := rm.Data("<", "prev"+fmt.Sprint(pageCount-1), fmt.Sprint(pageCount-1))
 			nextButton := rm.Data(">", "next"+fmt.Sprint(pageCount+1), fmt.Sprint(pageCount+1))
 			page = append(page, rm.Row(prevButton, nextButton))
-			page = append(page, rm.Row(td.cancelButton(rm)))
+			page = append(page, rm.Row(td.cancelButton(rm, h)))
 			pages = append(pages, page)
 			td.handlePaginationButton(&prevButton, &pages, rm)
 			td.handlePaginationButton(&nextButton, &pages, rm)
@@ -124,14 +100,12 @@ func (td *TelegramEventDecision) optionButton(option string, optionIndex int, rm
 		defer td.tb.Respond(c)
 		if err := td.handleButtonCallback(c, h); err != nil {
 			if c.Message.ReplyTo != nil {
-				ReplyError(td.tb, c.Message.ReplyTo, err)
-			} else {
-				SendError(td.tb, c.Sender.ID, fmt.Errorf("`%v`\n%v", td.what, err))
+				td.handleError(c.Message.ReplyTo, h, err)
+			} else if c.Message.Sender != nil {
+				td.handleError(c.Message, h, err)
 			}
-			td.decided <- false
 			return
 		}
-		td.decided <- true
 	})
 	return button
 }
@@ -142,28 +116,24 @@ func (td *TelegramEventDecision) handleButtonCallback(c *telebot.Callback, h Tel
 	if err != nil {
 		return err
 	}
-	if td.successMessage, err = h.OnDecision(td.what, td.options, decisionIndex); err != nil {
-		return fmt.Errorf("handler error: %v", err)
+	msg, err := h.OnDecision(td.what, td.options, decisionIndex)
+	if err != nil {
+		return errors.Wrap(err, "handler error: %v")
 	}
+	td.handleMessage(c.Message.ReplyTo, msg)
 	return nil
 }
 
-func (td *TelegramEventDecision) message(receieved *telebot.Message, text string, options ...interface{}) error {
-	var err error
-	if td.opts.useReply {
-		_, err = td.tb.Reply(receieved, text, options)
-	} else {
-		_, err = td.tb.Send(&telebot.User{ID: receieved.Sender.ID}, text, options)
-	}
-	return err
-}
-
-func (td *TelegramEventDecision) cancelButton(rm *telebot.ReplyMarkup) telebot.Btn {
+func (td *TelegramEventDecision) cancelButton(rm *telebot.ReplyMarkup, h TelegramDecisionHandler) telebot.Btn {
 	button := rm.Data("cancel", "cancel", "cancel")
 	td.tb.Handle(&button, func(c *telebot.Callback) {
 		_ = messageCleanup(td.tb, c.Message)
-		log.Println("decision cancelled")
-		td.decided <- false
+		msg, err := h.OnCancel()
+		if err != nil {
+			td.handleError(c.Message.ReplyTo, h, err)
+			return
+		}
+		td.handleMessage(c.Message.ReplyTo, msg)
 	})
 	return button
 }
@@ -178,4 +148,24 @@ func (td *TelegramEventDecision) handlePaginationButton(b *telebot.Btn, pages *[
 		rm.Inline((*pages)[pageIndex-1]...)
 		_, _ = td.tb.Edit(c.Message, c.Message.Text, rm)
 	})
+}
+
+func (td *TelegramEventDecision) handleMessage(receieved *telebot.Message, message string) {
+	if message == "" {
+		return
+	}
+	if td.opts.useReply {
+		_, _ = td.tb.Reply(receieved, message)
+	} else {
+		_, _ = td.tb.Send(&telebot.User{ID: receieved.Sender.ID}, message)
+	}
+}
+
+func (td *TelegramEventDecision) handleError(receieved *telebot.Message, h TelegramDecisionHandler, err error) {
+	text := h.OnError(err)
+	if td.opts.useReply {
+		_, _ = td.tb.Reply(receieved, text)
+	} else {
+		_, _ = td.tb.Send(&telebot.User{ID: receieved.Sender.ID}, text)
+	}
 }
