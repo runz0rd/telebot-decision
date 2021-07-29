@@ -10,8 +10,8 @@ import (
 )
 
 type Options struct {
-	optionsPerPage int
-	useReply       bool
+	OptionsPerPage int
+	UseReply       bool
 }
 
 type TelegramDecisionHandler interface {
@@ -39,8 +39,8 @@ type TelegramEventDecision struct {
 }
 
 func NewTelegramDecisionWithHandler(tb *telebot.Bot, opts Options) *TelegramEventDecision {
-	if opts.optionsPerPage == 0 {
-		opts.optionsPerPage = 10
+	if opts.OptionsPerPage == 0 {
+		opts.OptionsPerPage = 10
 	}
 	return &TelegramEventDecision{
 		tb:   tb,
@@ -77,7 +77,7 @@ func (td *TelegramEventDecision) createReplyMarkup(h TelegramDecisionHandler) *t
 	var pageCount int
 	for i, option := range td.options {
 		page = append(page, rm.Row(td.optionButton(option, i, rm, h)))
-		if (i+1)%td.opts.optionsPerPage == 0 || i+1 == len(td.options) {
+		if (i+1)%td.opts.OptionsPerPage == 0 || i+1 == len(td.options) {
 			pageCount = len(pages) + 1
 			prevButton := rm.Data("<", "prev"+fmt.Sprint(pageCount-1), fmt.Sprint(pageCount-1))
 			nextButton := rm.Data(">", "next"+fmt.Sprint(pageCount+1), fmt.Sprint(pageCount+1))
@@ -154,7 +154,7 @@ func (td *TelegramEventDecision) handleMessage(receieved *telebot.Message, messa
 	if message == "" {
 		return
 	}
-	if td.opts.useReply {
+	if td.opts.UseReply {
 		_, _ = td.tb.Reply(receieved, message)
 	} else {
 		_, _ = td.tb.Send(&telebot.User{ID: receieved.Sender.ID}, message)
@@ -163,7 +163,7 @@ func (td *TelegramEventDecision) handleMessage(receieved *telebot.Message, messa
 
 func (td *TelegramEventDecision) handleError(receieved *telebot.Message, h TelegramDecisionHandler, err error) {
 	text := h.OnError(err)
-	if td.opts.useReply {
+	if td.opts.UseReply {
 		_, _ = td.tb.Reply(receieved, text)
 	} else {
 		_, _ = td.tb.Send(&telebot.User{ID: receieved.Sender.ID}, text)
