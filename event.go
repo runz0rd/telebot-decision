@@ -51,7 +51,7 @@ func NewTelegramDecisionWithHandler(tb *telebot.Bot, opts Options) *TelegramEven
 func (td *TelegramEventDecision) Handle(h TelegramDecisionHandler) {
 	var err error
 	td.tb.Handle("/start", func(m *telebot.Message) {
-		msg, err := h.OnStart(m.Sender.ID)
+		msg, err := h.OnStart(m)
 		if err != nil {
 			td.handleError(m, h, err)
 			return
@@ -61,7 +61,7 @@ func (td *TelegramEventDecision) Handle(h TelegramDecisionHandler) {
 	td.tb.Handle(telebot.OnText, func(m *telebot.Message) {
 		var msg string
 		td.what = m.Text
-		msg, td.options, err = h.OnMessage(m.Text, m.Sender.ID)
+		msg, td.options, err = h.OnMessage(m)
 		if err != nil {
 			td.handleError(m, h, err)
 			return
